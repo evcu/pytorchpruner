@@ -1,1 +1,4 @@
 *.pyc
+notebooks/data
+notebooks/.*
+.cache*
