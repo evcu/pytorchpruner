@@ -43,7 +43,7 @@ def generate_onehot_var(size,ind):
     #this to generate one hot vector with size n, x_1=0,x_2=0,...x_i=1,...x_n=0
     res = torch.zeros(size)
     res[ind] = 1
-    return Variable(res)
+    return Variable(res,requires_grad=False)
 
 def flatten_params(params):
     """
@@ -52,17 +52,42 @@ def flatten_params(params):
              [1] a generator function which accepts a Parameter/Variable/Tensor of length N
              and returns a generator of Parameter/Variable/Tensor with same sizes in order as the params.
     """
-    list_of_sizes = []
-    def resize_param_fun(flatten_params):
-        c_sum = 0
-        for numel,size in list_of_sizes:
-            yield flatten_params[c_sum:c_sum+numel].view(size)
-            c_sum += numel
-    list_of_params = []
-    for p in params:
-        list_of_sizes.append((p.nelement(),p.size()))
-        list_of_params.append(p.contiguous().view(-1))
-    return torch.cat(list_of_params),resize_param_fun
+    if isinstance(params,Parameter):
+        return params.contiguous().view(-1)
+    else:
+        list_of_params = []
+        for p in params:
+            list_of_params.append(p.contiguous().view(-1))
+        return torch.cat(list_of_params)
+
+def get_reverse_flatten_params_fun(params,get_count=False):
+    """
+    Returns a function which reshapes the flattened vector to its original hessian_shape
+    if get_count=True it returs total number of elements for the non-trivial(iterator) case
+    """
+    if isinstance(params,Parameter):
+        def resize_param_fun(flatten_params):
+            return flatten_params.view(params.size())
+        return resize_param_fun
+    else:
+        list_of_sizes = []
+        def resize_param_fun(flatten_params):
+            c_sum = 0
+            for numel,size in list_of_sizes:
+                yield flatten_params[c_sum:c_sum+numel].view(size)
+                c_sum += numel
+
+        if get_count:
+            total_element_number = 0
+            for p in params:
+                total_element_number += p.nelement()
+                list_of_sizes.append((p.nelement(),p.size()))
+            return resize_param_fun,total_element_number
+        else:
+            for p in params:
+                list_of_sizes.append((p.nelement(),p.size()))
+            return resize_param_fun
+
 
 def hessian_fun(loss,params,flattened=False):
     """
@@ -76,6 +101,8 @@ def hessian_fun(loss,params,flattened=False):
     returns: torch.Tensor or list of torch.Tensor
         1d of size n->returns n*n tensor.
         2d of size m*n -> returns m*n*m*n tensor.
+
+    NOTE: retains the graph
     TODO:extend to arbitrary params1 params2. such that we can get any part of the big network hessian.
     """
     if isinstance(params,Parameter):
@@ -95,7 +122,7 @@ def hessian_fun(loss,params,flattened=False):
     # Iteratively calculate hessian of L(w) by multipliying the hessian with the one-hot vectors
     # note that ind can be a tuple or single int
     for ind in index_generator(jacobian.size()):
-        hessian_row_i,_ = hessian_vector_product( None, #when params_grad given loss is not needed
+        hessian_row_i = hessian_vector_product( None, #when params_grad given loss is not needed
                                                 params,
                                                 generate_onehot_var(jacobian.size(),ind),
                                                 params_grad = jacobian,
@@ -107,7 +134,7 @@ def hessian_fun(loss,params,flattened=False):
     return result
 
 
-def gradient_fun(loss,params,flattened=False,create_graph=False):
+def gradient_fun(loss,params,flattened=False,create_graph=False,retain_graph=False):
     """
     loss: a scalar Variable
     params: Parameter with params.size()=S
@@ -115,9 +142,15 @@ def gradient_fun(loss,params,flattened=False,create_graph=False):
     returns: Tensor with size S containing the gradient.
 
     """
-    gradient = torch.autograd.grad(loss, params,create_graph=create_graph)
+    if create_graph:
+        #if you are creating it you are reataining it by default.
+        retain_graph = True
+    gradient = torch.autograd.grad(loss,
+                                   params,
+                                   create_graph=create_graph,
+                                   retain_graph=retain_graph)
     if flattened:
-        gradient,_ = flatten_params(gradient)
+        gradient = flatten_params(gradient)
     else:
         gradient = gradient[0]
     return gradient
@@ -139,6 +172,15 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
         the only instance where I flatten is during the hessian and I get the same function during grad calcualtion.
         Future use cases may require and one can return.
     """
+
+    #We need a Variable, so ensure
+    if isinstance(vector,torch.Tensor):
+        vector = Variable(vector,requires_grad=False)
+    elif isinstance(vector,Variable):
+        pass
+    else:
+        raise ValueError("Vector passed is not a Variable or Tensor: {}".format(type(vector)))
+
     if isinstance(params,Parameter):
         # Case 1
         pass
@@ -155,18 +197,18 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
     else:
         params_grad = torch.autograd.grad(loss, params, create_graph=True)
         if flattened:
-            params_grad,_ = flatten_params(params_grad)
+            params_grad = flatten_params(params_grad)
         else:
             params_grad = params_grad[0]
 
     grad_vector_dot = torch.sum(params_grad * vector)
     hv_params = torch.autograd.grad(grad_vector_dot, params,retain_graph=retain_graph)
     if flattened:
-        hv_params,reverse_fun = flatten_params(hv_params)
-        return hv_params.data,reverse_fun
+        hv_params = flatten_params(hv_params)
     else:
-        hv_params = hv_params[0].data
-        return hv_params
+        hv_params = hv_params[0]
+
+    return hv_params.data
 
 
 

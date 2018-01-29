@@ -3,6 +3,7 @@ from torch.nn.modules import Module
 from .modules import MaskedModule
 from torch.nn import Parameter
 from torch import nn
+from .scorers import magnitudeScorer
 
 class BasePruner(object):
     # One can add trainer here.
@@ -14,17 +15,17 @@ class BasePruner(object):
                 raise ValueError("model needs to be a nn.Module")
         else:
             self.masked_model = model
+        self.scorer = magnitudeScorer
 
     def prune(self,f=0.1):
         #f is prunning factor. TODO make it layer wise possibility. If supplied a list etc..
         # We just prune weights not biases
-        # this function can get flag like score_function='magnitude' and this would trigger appropriate __scorefunction.
         # TODO if you want to remove some mask, i.e. f=0.5 after f=0.9. We need to implement that here
-        # Don't forget to reinitialize or update the state of the optimizer. Otherwise your weights might get updatete eve though they have 0 grad.
+        # Don't forget to reinitialize or update the state of the optimizer. Otherwise your weights might get updatete even though they have 0 grad.
         # IDEA maybe use register buffer to hold masks
         if isinstance(f,float):
             for layer,mask in self.masked_model._mask_dict.items():
-                scores = self.score_function(layer)
+                scores = self.scorer(layer.weight)
                 srted = torch.sort(scores.view(-1))[0]
                 if (len(srted)*f)>(len(srted)-1):
                     #In this case we prune all weights
@@ -35,6 +36,7 @@ class BasePruner(object):
                 mask = scores>=thres
                 layer.weight.data[mask!=1] = 0
                 self.masked_model._mask_dict[layer] = mask
+
     def remove_empty_filters(self, layer, next_layer, nz_threshold=0, nz_threshold_next=0, debug=True, out_dim=0, inp_dim=1):
         r"""This function removes dead filters in a conv2d or Linear layer.
         There are two possibilities
@@ -120,7 +122,3 @@ class BasePruner(object):
         ## Update masks
         self.masked_model._mask_dict[layer] = new_mask
         self.masked_model._mask_dict[next_layer] = new_mask2
-
-    def score_function(self,layer):
-        #must return non-negative scores. High scores represents high saliency.
-        return layer.weight.data.clone().abs()
