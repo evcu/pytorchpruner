@@ -134,7 +134,7 @@ def hessian_fun(loss,params,flattened=False):
     return result
 
 
-def gradient_fun(loss,params,flattened=False,create_graph=False,retain_graph=False):
+def gradient_fun(loss,params,flattened=False,create_graph=False,retain_graph=True):
     """
     loss: a scalar Variable
     params: Parameter with params.size()=S
