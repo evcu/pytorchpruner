@@ -17,7 +17,7 @@ def gradientScorer(loss,params):
     """
     return gradient_fun(loss,params,retain_graph=True).data.abs()
 
-def hessianScorer(loss,params):
+def hessianScorer(loss,params,scale=1):
     """
     hessian Scorer which basically returns the sum of the row of the hessian
     using efficient hessian-vector product.
@@ -32,10 +32,11 @@ def hessianScorer(loss,params):
     Example:
         check `test_hessianScorer`
     """
-
+    if not isinstance(scale,float):
+        raise ValueError('scale={} needs tobe a float'.format(float))
     if isinstance(params,nn.Parameter):
         vector = torch.ones(params.size())
-        hessian_score = hessian_vector_product(loss,params,vector,retain_graph=True).abs()
+        hessian_score = scale*hessian_vector_product(loss,params,vector,retain_graph=True).abs()
     elif isinstance(params,collections.Iterable):
         # Case 2
         params = list(params)
@@ -48,3 +49,23 @@ def hessianScorer(loss,params):
                             parameters or a single parameter" % type(params))
 
     return hessian_score
+
+def gradientDescentScorer(loss,params,scale=1):
+    if not isinstance(scale,float):
+        raise ValueError('scale={} needs tobe a float'.format(float))
+    if isinstance(params,nn.Parameter):
+        grad_tensor = gradient_fun(loss,params,retain_graph=True).data.clone()
+        hv = scale*hessian_vector_product(loss,params,grad_tensor,retain_graph=True)
+        second_order_appx = -scale*torch.mul(grad_tensor,grad_tensor)+(scale**2)*torch.mul(grad_tensor,hv)
+    elif isinstance(params,collections.Iterable):
+        params = list(params)
+        rev_f,n_elements = get_reverse_flatten_params_fun(params,get_count=True)
+        flat_grad_tensor = gradient_fun(loss,params,retain_graph=True,flatten=True).data.clone()
+        flat_hv = hessian_vector_product(loss,params,grad_tensor,retain_graph=True,flattened=True).abs()
+        flattened_second_order_appx = (-scale*torch.mul(flat_grad_tensor,flat_grad_tensor)
+                                       +(scale**2)*torch.mul(flat_grad_tensor,flat_hv))
+        second_order_appx = rev_f(flattened_second_order_appx)
+    else:
+        raise ValueError("Invalid type, received: %s. either supply iterable of \
+                            parameters or a single parameter" % type(params))
+    return second_order_appx.abs()
