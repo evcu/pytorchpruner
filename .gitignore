@@ -2,3 +2,5 @@
 notebooks/data
 notebooks/.*
 .cache*
+build/
+*.mod
