@@ -2,7 +2,7 @@
 
 from distutils.core import setup
 
-setup(name='pytorchprunner',
+setup(name='pytorchpruner',
       version='0.1',
       description='Prunner extesion with scoring functions and second order helpers',
       author='Utku Evci',
