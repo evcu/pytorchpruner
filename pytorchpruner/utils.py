@@ -151,8 +151,9 @@ def gradient_fun(loss,params,flattened=False,create_graph=False,retain_graph=Tru
                                    retain_graph=retain_graph)
     if flattened:
         gradient = flatten_params(gradient)
-    else:
+    elif isinstance(params,Parameter):
         gradient = gradient[0]
+
     return gradient
 
 
