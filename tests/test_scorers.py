@@ -45,7 +45,7 @@ def test_gradientScorer():
     w = Parameter(torch.rand(2,2))
 
     loss_val = L2d(w)
-    grad_score = gradientScorer(loss_val, w)
+    grad_score = gradientScorer(w,loss_val)
     #emprical score
     correct_score = GScore(w).abs()
     assert (grad_score-correct_score).abs().sum() < TOLERANCE
@@ -54,7 +54,7 @@ def test_hessianScorer():
     w = Parameter(torch.rand(2,2))
     loss_val = L2d(w)
 
-    hessian_score = hessianScorer(loss_val,w)
+    hessian_score = hessianScorer(w,loss_val)
     #emprical score
     correct_score = HScore(w).abs()
     assert (hessian_score-correct_score).abs().sum() < TOLERANCE

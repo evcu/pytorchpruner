@@ -9,7 +9,7 @@ import collections
 import torch
 
 #loss is not needer, but adding it here to have a generic set of parameters
-def magnitudeScorer(loss,params,scale=1):
+def magnitudeScorer(params,*args,**kwargs):
     if isinstance(params,nn.Parameter):
         result = params.data.clone().abs()
     elif isinstance(params,collections.Iterable):
@@ -20,7 +20,7 @@ def magnitudeScorer(loss,params,scale=1):
                             parameters or a single parameter" % type(params))
     return scale*result
 
-def gradientScorer(loss,params):
+def gradientScorer(params,loss):
     """
     Follows gradient_funs behaviour about list of params.
     """
@@ -36,7 +36,7 @@ def gradientScorer(loss,params):
                             parameters or a single parameter" % type(params))
     return result
 
-def hessianScorer(loss,params,scale=1):
+def hessianScorer(params,loss,scale=1):
     """
     hessian Scorer which basically returns the sum of the row of the hessian
     using efficient hessian-vector product.
@@ -69,7 +69,7 @@ def hessianScorer(loss,params,scale=1):
 
     return hessian_score
 
-def gradientDescentScorer(loss,params,scale=1):
+def gradientDescentScorer(params,loss,scale=1):
     if not isinstance(scale, (int, float)):
         raise ValueError('scale={} needs to be a float or int'.format(float))
     if isinstance(params,nn.Parameter):
