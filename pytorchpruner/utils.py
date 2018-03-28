@@ -151,8 +151,9 @@ def gradient_fun(loss,params,flattened=False,create_graph=False,retain_graph=Tru
                                    retain_graph=retain_graph)
     if flattened:
         gradient = flatten_params(gradient)
-    else:
+    elif isinstance(params,Parameter):
         gradient = gradient[0]
+        
     return gradient
 
 
@@ -209,54 +210,3 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
         hv_params = hv_params[0]
 
     return hv_params.data
-
-
-
-#
-# def train(epoch):
-#     model.train()
-#     for batch_idx, (data, target) in enumerate(trainloader):
-#         if use_cuda:
-#             data, target = data.cuda(), target.cuda()
-#         data, target = Variable(data), Variable(target)
-#         optimizer.zero_grad()
-#         output = model(data)
-#         loss = criterion(output, target)
-#         loss.backward()
-#         optimizer.step()
-#         if batch_idx % argslog_interval == 0:
-#             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-#                 epoch, batch_idx * len(data), len(trainloader.dataset),
-#                 100. * batch_idx / len(trainloader), loss.data[0]))
-# def test(is_train=False):
-#     if is_train:
-#         loader = trainloader
-#         set_str = 'Train'
-#     else:
-#         set_str = 'Test'
-#         loader = testloader
-#     model.eval()
-#     test_loss = 0
-#     correct=0
-#     for data, target in loader:
-#         if use_cuda:
-#             data, target = data.cuda(), target.cuda()
-#         data, target = Variable(data, volatile=True), Variable(target)
-#         output = model(data)
-#         loss = criterion(output, target)
-#
-#         test_loss += loss.data[0]
-#         _, predicted = torch.max(output.data, 1)
-#         correct += predicted.eq(target.data).cpu().sum()
-#
-#     test_loss /= len(loader.dataset)
-#     print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-#         set_str, test_loss, correct, len(loader.dataset),
-#         100. * correct / len(loader.dataset)))
-#
-#
-#
-#
-#
-#
-#
