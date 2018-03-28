@@ -74,3 +74,6 @@ class MaskedModule(Module):
             return (sum_zeros/sum_elements)
         else:
             error('Mask is not initilized, this should not happen currently. 01.04.2018')
+    def __repr__(self):
+        return self.__class__.__name__ + '(\n\t' \
+            + 'module=' + str(self.module) + ')'
