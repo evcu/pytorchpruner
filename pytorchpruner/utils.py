@@ -210,53 +210,70 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
 
     return hv_params.data
 
+def my_select(tensor,dim,indices):
+    if dim==0:
+        return tensor[indices,]
+    elif dim==1:
+        return tensor[:,indices,]
+    elif dim==2:
+        return tensor[:,:,indices,]
+    else:
+        raise ValueError('That is enough')
 
+def _find_fan_out_weights(defs_conv,defs_fc,layer_name,unit_index):
+    """
+    Arguments:
+        - unit_index: int or slice
+    finding outgoing layer and the indices associated with the unit provided.
+    1. Find layer, check unit_index
+    2. Save consecutive layer
+    3. If the layer=conv next_layer=fc we need to update the slice
+    Example:
 
-#
-# def train(epoch):
-#     model.train()
-#     for batch_idx, (data, target) in enumerate(trainloader):
-#         if use_cuda:
-#             data, target = data.cuda(), target.cuda()
-#         data, target = Variable(data), Variable(target)
-#         optimizer.zero_grad()
-#         output = model(data)
-#         loss = criterion(output, target)
-#         loss.backward()
-#         optimizer.step()
-#         if batch_idx % argslog_interval == 0:
-#             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-#                 epoch, batch_idx * len(data), len(trainloader.dataset),
-#                 100. * batch_idx / len(trainloader), loss.data[0]))
-# def test(is_train=False):
-#     if is_train:
-#         loader = trainloader
-#         set_str = 'Train'
-#     else:
-#         set_str = 'Test'
-#         loader = testloader
-#     model.eval()
-#     test_loss = 0
-#     correct=0
-#     for data, target in loader:
-#         if use_cuda:
-#             data, target = data.cuda(), target.cuda()
-#         data, target = Variable(data, volatile=True), Variable(target)
-#         output = model(data)
-#         loss = criterion(output, target)
-#
-#         test_loss += loss.data[0]
-#         _, predicted = torch.max(output.data, 1)
-#         correct += predicted.eq(target.data).cpu().sum()
-#
-#     test_loss /= len(loader.dataset)
-#     print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-#         set_str, test_loss, correct, len(loader.dataset),
-#         100. * correct / len(loader.dataset)))
-#
-#
-#
-#
-#
-#
-#
+        self.defs_conv = [1,
+                        ('conv1',8,5,2),
+                        ('conv2',16,5,2)]
+        self.defs_fc = [16*16,
+                        ('fc1',64),
+                        ('fc2',10)]
+    """
+    is_found = False
+    next_layer = False
+
+    #if slice we need better error checking
+    if isinstance(unit_index,slice):
+        compare_f = lambda i,n_out: 0<=min(i.start,i.stop) and max(i.start,i.stop)<n_out
+    else:
+        compare_f = lambda i,n_out: 0<=i<n_out
+
+    for l,n_out,_,_ in defs_conv[1:]:
+        if is_found:
+            next_layer = l
+            break
+        if layer_name==l:
+            is_found = True
+            #check index is valid
+            if not compare_f(unit_index,n_out):
+                raise ValueError(f'index:{unit_index} is not 0<=x<{n_out} at layer: {layer_name}')
+    if not next_layer:
+        if is_found:
+            #This means the last conv layer is the layer and we need a special handling
+            #since there are might be multiple weights associated with theses outputs
+            next_layer = defs_fc[1][0]
+            conv_out_numel = defs_fc[0]//n_out
+            #we need to expand the slice
+            if isinstance(unit_index,slice):
+                unit_index = slice(unit_index.start*conv_out_numel,unit_index.stop*conv_out_numel)
+            else:
+                start_index = unit_index*conv_out_numel
+                unit_index = slice(start_index,start_index+conv_out_numel)
+        else:
+            for l,n_out in defs_fc[1:]:
+                if is_found:
+                    next_layer = l
+                    break
+                if layer_name==l:
+                    is_found = True
+                    if not compare_f(unit_index,n_out):
+                        raise ValueError(f'index:{unit_index} is not 0<=x<{n_out} at layer: {layer_name}')
+    return next_layer,unit_index
