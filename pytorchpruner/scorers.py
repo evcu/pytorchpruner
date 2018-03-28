@@ -18,7 +18,7 @@ def magnitudeScorer(params,*args,**kwargs):
     else:
         raise ValueError("Invalid type, received: %s. either supply iterable of \
                             parameters or a single parameter" % type(params))
-    return scale*result
+    return result
 
 def gradientScorer(params,loss):
     """
