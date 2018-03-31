@@ -98,7 +98,7 @@ def hessian_fun(loss,params,flattened=False):
             note that each hessian is calculated for the particular Parameter.
             If you want to calculate the hessian of the whole network, please
             flatten the parameter first then call hessian on the flattened parameter.
-    returns: torch.Tensor or list of torch.Tensor
+    returns: torch.<cuda>.Tensor or list of torch.Tensor
         1d of size n->returns n*n tensor.
         2d of size m*n -> returns m*n*m*n tensor.
 
@@ -175,7 +175,7 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
     """
 
     #We need a Variable, so ensure
-    if isinstance(vector,torch.Tensor):
+    if torch.is_tensor(vector):
         vector = Variable(vector,requires_grad=False)
     elif isinstance(vector,Variable):
         pass
@@ -201,7 +201,8 @@ def hessian_vector_product(loss,params,vector,params_grad=None,retain_graph=Fals
             params_grad = flatten_params(params_grad)
         else:
             params_grad = params_grad[0]
-
+    if params_grad.is_cuda: vector= vector.cuda()
+    # import pdb;pdb.set_trace()
     grad_vector_dot = torch.sum(params_grad * vector)
     hv_params = torch.autograd.grad(grad_vector_dot, params,retain_graph=retain_graph)
     if flattened:

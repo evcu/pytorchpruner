@@ -7,8 +7,20 @@ from torch import nn
 from .scorers import magnitudeScorer
 
 
-
-
+def get_pruning_mask(scores,f=0.1):
+    """
+    @params scores scorer
+    @f lowest f fraction of scores elements would have a 1 in the mask.
+    """
+    srted = torch.sort(scores.view(-1))[0]
+    if (len(srted)*f)>(len(srted)-1):
+        #In this case we prune all weights
+        print("Warning! whole tensor is about to be pruned.")
+        thres = float('inf')
+    else:
+        thres = srted[int(len(srted)*f)]
+    mask = scores<thres
+    return mask
 
 class BasePruner(object):
     # f_reinit_optimizer needed to be able remove any scheduling existed before,
@@ -34,15 +46,8 @@ class BasePruner(object):
         if isinstance(f,float):
             for layer,mask in self.masked_model._mask_dict.items():
                 scores = self.scorer(layer.weight)
-                srted = torch.sort(scores.view(-1))[0]
-                if (len(srted)*f)>(len(srted)-1):
-                    #In this case we prune all weights
-                    print("Warning! whole layer is about to be pruned.")
-                    thres = float('inf')
-                else:
-                    thres = srted[int(len(srted)*f)]
-                mask = scores>=thres
-                layer.weight.data[mask!=1] = 0
+                mask = get_pruning_mask(scores,f)
+                layer.weight.data[mask] = 0
                 self.masked_model._mask_dict[layer] = mask
         self.f_reinit_optimizer()
 

@@ -7,7 +7,7 @@ from .utils import hessian_fun,gradient_fun,get_reverse_flatten_params_fun,hessi
 from torch import nn
 import collections
 import torch
-
+from itertools import product
 #loss is not needer, but adding it here to have a generic set of parameters
 def magnitudeScorer(params,*args,**kwargs):
     if isinstance(params,nn.Parameter):
@@ -89,3 +89,16 @@ def gradientDescentScorer(params,loss,scale=1):
         raise ValueError("Invalid type, received: %s. either supply iterable of \
                             parameters or a single parameter" % type(params))
     return second_order_appx
+
+def lossChangeScorer(params,loss,loss_calc_f=None):
+    if loss_calc_f is None:
+        raise ValueError(f'loss_calc_f:{loss_calc_f} cannot be None')
+    else:
+        scores = params.data.clone()
+        for idx in product(*map(range,scores.size())):
+            # import pdb;pdb.set_trace()
+            old_val,params.data[idx] = params.data[idx],0
+
+            scores[idx] = loss_calc_f()[0].data[0]-loss.data[0]
+            params.data[idx] = old_val
+    return scores
