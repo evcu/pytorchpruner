@@ -20,7 +20,7 @@ class MaskedModule(Module):
     def initialize_transparent_masks(self):
         def helper(m):
             if isinstance(m, self.DEFAULT_MASKED_MODULES):
-                self._mask_dict[m] = torch.ones(m.weight.data.size())
+                self._mask_dict[m] = torch.zeros(m.weight.data.size()).byte()
         self.module.apply(helper)
 
     def forward(self, *inputs, **kwargs):
@@ -29,7 +29,7 @@ class MaskedModule(Module):
     def apply_mask_on_gradients(self):
         def helper(m):
             if isinstance(m, self.DEFAULT_MASKED_MODULES):
-                m.weight.grad.data[self._mask_dict[m]!=1]=0
+                m.weight.grad.data[self._mask_dict]=0
         self.module.apply(helper)
 
     def initiliaze_forward_hooks(self):
@@ -69,7 +69,7 @@ class MaskedModule(Module):
         sum_elements = 0
         if self._mask_dict:
             for mask in self._mask_dict.values():
-                sum_zeros += (mask==0).sum()
+                sum_zeros += mask.sum()
                 sum_elements += mask.nelement()
             return (sum_zeros/sum_elements)
         else:

@@ -25,7 +25,9 @@ def gradientScorer(params,loss):
     Follows gradient_funs behaviour about list of params.
     """
     if isinstance(params,nn.Parameter):
-        result = gradient_fun(loss,params,retain_graph=True).data.abs()
+        dat = params.data.clone()
+        grad = gradient_fun(loss,params,retain_graph=True).data.abs()
+        result = torch.mul(dat,grad)
     elif isinstance(params,collections.Iterable):
         # Case 2
         params = list(params)
@@ -36,7 +38,7 @@ def gradientScorer(params,loss):
                             parameters or a single parameter" % type(params))
     return result
 
-def hessianScorer(params,loss,scale=1):
+def hessianScorer(params,loss):
     """
     hessian Scorer which basically returns the sum of the row of the hessian
     using efficient hessian-vector product.
@@ -51,11 +53,9 @@ def hessianScorer(params,loss,scale=1):
     Example:
         check `test_hessianScorer`
     """
-    if not isinstance(scale, (int, float)):
-        raise ValueError('scale={} needs tobe a float or int'.format(float))
     if isinstance(params,nn.Parameter):
         vector = torch.ones(params.size())
-        hessian_score = scale*hessian_vector_product(loss,params,vector,retain_graph=True).abs()
+        hessian_score = hessian_vector_product(loss,params,vector,retain_graph=True).abs()
     elif isinstance(params,collections.Iterable):
         # Case 2
         params = list(params)
@@ -69,7 +69,81 @@ def hessianScorer(params,loss,scale=1):
 
     return hessian_score
 
+
+def taylor1Scorer(params,loss,pruning_mode=False,take_abs=False):
+    """
+    Follows gradient_funs behaviour about list of params.
+    """
+    grads = gradientScorer(params,loss)
+    weigts = magnitudeScorer(params)
+    def final_fun(g,w):
+        if pruning_mode:
+            result = torch.mul(g,-w)
+        else:
+            result = torch.mul(g,-w.sign())
+        if take_abs:
+            result = result.abs()
+
+    if isinstance(params,nn.Parameter):
+        result = final_fun(grads,weights)
+    elif isinstance(params,collections.Iterable):
+        result = list(map(final_fun,zip(grads,weights)))
+    else:
+        raise ValueError("Invalid type, received: %s. either supply iterable of \
+                            parameters or a single parameter" % type(params))
+    return result
+
+def taylor1ScorerAbs(params,loss):
+    return taylor1Scorer(params,loss,take_abs=True)
+
+def taylor1ScorerPruningMode(params,loss):
+    return taylor1Scorer(params,loss,pruning_mode=True)
+
+def taylor1ScorerPruningModeAbs(params,loss):
+    return taylor1Scorer(params,loss,pruning_mode=True,take_abs=True)
+
+#TODO pruning mode(possibly other mode, too) is not exacctly true hessianScorer needs to get optional vector parameter. Implement and test it.
+def taylor2Scorer(params,loss,scale=0.01,pruning_mode=False,take_abs=False):
+    """
+    Follows gradient_funs behaviour about list of params.
+
+    """
+    if not isinstance(scale, (int, float)):
+        raise ValueError(f'scale={float} needs tobe a float or int')
+    grads = gradientScorer(params,loss)
+    hessians = hessianScorer(params,loss)
+    weigts = magnitudeScorer(params)
+    def final_fun(h,g,w):
+        if pruning_mode:
+            result = torch.mul(w,-scale*g+(scale**2)*h)
+        else:
+            result = torch.mul(w.sign(),-scale*g+(scale**2)*h)
+        if take_abs:
+            result = result.abs()
+
+    if isinstance(params,nn.Parameter):
+        result = final_fun(grads,weights)
+    elif isinstance(params,collections.Iterable):
+        result = list(map(final_fun,zip(grads,weights)))
+    else:
+        raise ValueError("Invalid type, received: %s. either supply iterable of \
+                            parameters or a single parameter" % type(params))
+    return result
+
+def taylor2ScorerAbs(params,loss):
+    return taylor2Scorer(params,loss,take_abs=True)
+
+def taylor2ScorerPruningMode(params,loss):
+    return taylor2Scorer(params,loss,pruning_mode=True)
+
+def taylor2ScorerPruningModeAbs(params,loss):
+    return taylor2Scorer(params,loss,pruning_mode=True,take_abs=True)
+
+# TODO checkk that this is equal to taylor2Scorer and remove
 def gradientDescentScorer(params,loss,scale=1):
+    """
+    check that
+    """
     if not isinstance(scale, (int, float)):
         raise ValueError('scale={} needs to be a float or int'.format(float))
     if isinstance(params,nn.Parameter):
