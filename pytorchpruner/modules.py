@@ -29,7 +29,7 @@ class MaskedModule(Module):
     def apply_mask_on_gradients(self):
         def helper(m):
             if isinstance(m, self.DEFAULT_MASKED_MODULES):
-                m.weight.grad.data[self._mask_dict]=0
+                m.weight.grad.data[self._mask_dict[m]]=0
         self.module.apply(helper)
 
     def initiliaze_forward_hooks(self):
