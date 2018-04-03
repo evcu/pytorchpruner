@@ -96,9 +96,17 @@ def lossChangeScorer(params,loss,loss_calc_f=None):
     else:
         scores = params.data.clone()
         for idx in product(*map(range,scores.size())):
-            # import pdb;pdb.set_trace()
             old_val,params.data[idx] = params.data[idx],0
-
             scores[idx] = loss_calc_f()[0].data[0]-loss.data[0]
             params.data[idx] = old_val
     return scores
+
+def lossChangeScorerAbs(*args,**kwargs):
+    scores = lossChangeScorer(*args,**kwargs)
+    return scores.abs()
+
+def randomScorer(params,loss):
+    old_state = torch.get_rng_state()
+    res = torch.rand(params.size())
+    torch.set_rng_state(old_state)
+    return res
