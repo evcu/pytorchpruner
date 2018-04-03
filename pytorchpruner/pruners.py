@@ -79,10 +79,10 @@ class BasePruner(object):
                                                             layer_name,i)
                 next_layer = getattr(self.masked_model.module,next_layer_name)
                 next_mask = my_select(self.masked_model._mask_dict[next_layer],inp_dim,unit_index)
-                n_non_zeros = (curr_mask!=0).sum()
+                n_non_zeros = (curr_mask==0).sum()
                 n_total = curr_mask.numel()
                 frac_non_zeros = n_non_zeros / float(n_total)
-                n_non_zeros_next = (next_mask!=0).sum()
+                n_non_zeros_next = (next_mask==0).sum()
                 n_total_next = next_mask.numel()
                 frac_non_zeros_next = n_non_zeros_next / float(n_total_next)
                 if frac_non_zeros<=nz_frac:
