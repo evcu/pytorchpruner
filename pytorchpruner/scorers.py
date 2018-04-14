@@ -20,25 +20,29 @@ def magnitudeScorer(params,*args,**kwargs):
                             parameters or a single parameter" % type(params))
     return result
 
-def gradientScorer(params,loss):
+def taylor1Scorer(params,loss,w_fun=lambda a: -a):
     """
-    Follows gradient_funs behaviour about list of params.
+    taylor1Scorer
+
     """
     if isinstance(params,nn.Parameter):
-        dat = params.data.clone()
-        grad = gradient_fun(loss,params,retain_graph=True).data.abs()
-        result = torch.mul(dat,grad)
+        dw = w_fun(params.data)
+        grad = gradient_fun(loss,params,retain_graph=True).data
+        result = torch.mul(dw,grad)
     elif isinstance(params,collections.Iterable):
-        # Case 2
         params = list(params)
-        result = gradient_fun(loss,params,retain_graph=True)
-        result = list(map(lambda x:x.data.abs(),result))
+        grads = gradient_fun(loss,params,retain_graph=True)
+        result = list(map(lambda w,g:torch.mul(w_fun(w.data),g),zip(params,grads)))
     else:
         raise ValueError("Invalid type, received: %s. either supply iterable of \
                             parameters or a single parameter" % type(params))
     return result
 
-def hessianScorer(params,loss):
+def taylor1ScorerAbs(params,loss,w_fun=lambda a:-a):
+    return taylor1Scorer(params,loss,w_fun=w_fun).abs()
+
+
+def hessianScorer(params,loss,w_fun=lambda a:-a):
     """
     hessian Scorer which basically returns the sum of the row of the hessian
     using efficient hessian-vector product.
@@ -54,115 +58,54 @@ def hessianScorer(params,loss):
         check `test_hessianScorer`
     """
     if isinstance(params,nn.Parameter):
-        vector = torch.ones(params.size())
-        hessian_score = hessian_vector_product(loss,params,vector,retain_graph=True).abs()
+        vector = w_fun(params.data.clone())
+        hv = hessian_vector_product(loss,params,vector,retain_graph=True)
+        result = torch.mul(w_fun(params.data),hv)
     elif isinstance(params,collections.Iterable):
         # Case 2
         params = list(params)
         rev_f,n_elements = get_reverse_flatten_params_fun(params,get_count=True)
-        vector = torch.ones(n_elements)
-        flat_hessian_score = hessian_vector_product(loss,params,vector,retain_graph=True,flattened=True).abs()
-        hessian_score = rev_f(flat_hessian_score)
+        vector = flatten_params((w_fun(p.data.clone()) for p in params))
+        flat_hv = hessian_vector_product(loss,params,vector,retain_graph=True,flattened=True)
+        hv = rev_f(flat_hv)
+        result = list(map(lambda w,h:torch.mul(w_fun(w.data),h),zip(params,hv)))
     else:
         raise ValueError("Invalid type, received: %s. either supply iterable of \
                             parameters or a single parameter" % type(params))
 
-    return hessian_score
-
-
-def taylor1Scorer(params,loss,pruning_mode=False,take_abs=False):
-    """
-    Follows gradient_funs behaviour about list of params.
-    """
-    grads = gradientScorer(params,loss)
-    weigts = magnitudeScorer(params)
-    def final_fun(g,w):
-        if pruning_mode:
-            result = torch.mul(g,-w)
-        else:
-            result = torch.mul(g,-w.sign())
-        if take_abs:
-            result = result.abs()
-
-    if isinstance(params,nn.Parameter):
-        result = final_fun(grads,weights)
-    elif isinstance(params,collections.Iterable):
-        result = list(map(final_fun,zip(grads,weights)))
-    else:
-        raise ValueError("Invalid type, received: %s. either supply iterable of \
-                            parameters or a single parameter" % type(params))
     return result
 
-def taylor1ScorerAbs(params,loss):
-    return taylor1Scorer(params,loss,take_abs=True)
+def hessianScorerAbs(params,loss,w_fun=lambda a:-a):
+    return hessianScorer(params,loss,w_fun=w_fun).abs()
 
-def taylor1ScorerPruningMode(params,loss):
-    return taylor1Scorer(params,loss,pruning_mode=True)
-
-def taylor1ScorerPruningModeAbs(params,loss):
-    return taylor1Scorer(params,loss,pruning_mode=True,take_abs=True)
-
-#TODO pruning mode(possibly other mode, too) is not exacctly true hessianScorer needs to get optional vector parameter. Implement and test it.
-def taylor2Scorer(params,loss,scale=0.01,pruning_mode=False,take_abs=False):
+def taylor2Scorer(params,loss,w_fun=lambda a: -a,scale=1):
     """
-    Follows gradient_funs behaviour about list of params.
+    taylor2Scorer
 
     """
     if not isinstance(scale, (int, float)):
         raise ValueError(f'scale={float} needs tobe a float or int')
-    grads = gradientScorer(params,loss)
-    hessians = hessianScorer(params,loss)
-    weigts = magnitudeScorer(params)
-    def final_fun(h,g,w):
-        if pruning_mode:
-            result = torch.mul(w,-scale*g+(scale**2)*h)
-        else:
-            result = torch.mul(w.sign(),-scale*g+(scale**2)*h)
-        if take_abs:
-            result = result.abs()
-
     if isinstance(params,nn.Parameter):
-        result = final_fun(grads,weights)
+        vector = w_fun(params.data.clone())
+        hv = hessian_vector_product(loss,params,vector,retain_graph=True)
+        grad = gradient_fun(loss,params,retain_graph=True).data
+        result = torch.mul(w_fun(params.data),scale*hv+grad)
     elif isinstance(params,collections.Iterable):
-        result = list(map(final_fun,zip(grads,weights)))
+        # Case 2
+        params = list(params)
+        rev_f,n_elements = get_reverse_flatten_params_fun(params,get_count=True)
+        vector = flatten_params((w_fun(p.data.clone()) for p in params))
+        flat_hv = hessian_vector_product(loss,params,vector,retain_graph=True,flattened=True)
+        hv = rev_f(flat_hv)
+        grads = gradient_fun(loss,params,retain_graph=True)
+        result = list(map(lambda w,h,g:torch.mul(w_fun(w.data),scale*h+g),zip(params,hv,grads)))
     else:
         raise ValueError("Invalid type, received: %s. either supply iterable of \
                             parameters or a single parameter" % type(params))
     return result
 
-def taylor2ScorerAbs(params,loss):
-    return taylor2Scorer(params,loss,take_abs=True)
-
-def taylor2ScorerPruningMode(params,loss):
-    return taylor2Scorer(params,loss,pruning_mode=True)
-
-def taylor2ScorerPruningModeAbs(params,loss):
-    return taylor2Scorer(params,loss,pruning_mode=True,take_abs=True)
-
-# TODO checkk that this is equal to taylor2Scorer and remove
-def gradientDescentScorer(params,loss,scale=1):
-    """
-    check that
-    """
-    if not isinstance(scale, (int, float)):
-        raise ValueError('scale={} needs to be a float or int'.format(float))
-    if isinstance(params,nn.Parameter):
-        grad_tensor = gradient_fun(loss,params,retain_graph=True).data.clone()
-        hv = scale*hessian_vector_product(loss,params,grad_tensor,retain_graph=True)
-        second_order_appx = torch.abs(-scale*torch.mul(grad_tensor,grad_tensor)
-                                      +(scale**2)*torch.mul(grad_tensor,hv))
-    elif isinstance(params,collections.Iterable):
-        params = list(params)
-        rev_f,n_elements = get_reverse_flatten_params_fun(params,get_count=True)
-        flat_grad_tensor = gradient_fun(loss,params,retain_graph=True,flattened=True).data.clone()
-        flat_hv = hessian_vector_product(loss,params,flat_grad_tensor,retain_graph=True,flattened=True).abs()
-        flattened_second_order_appx = torch.abs(-scale*torch.mul(flat_grad_tensor,flat_grad_tensor)
-                                       +(scale**2)*torch.mul(flat_grad_tensor,flat_hv))
-        second_order_appx = rev_f(flattened_second_order_appx)
-    else:
-        raise ValueError("Invalid type, received: %s. either supply iterable of \
-                            parameters or a single parameter" % type(params))
-    return second_order_appx
+def taylor2ScorerAbs(params,loss,w_fun=lambda a:-a,scale=1):
+    return taylor2Scorer(params,loss,w_fun=w_fun,scale=scale).abs()
 
 def lossChangeScorer(params,loss,loss_calc_f=None):
     if loss_calc_f is None:
