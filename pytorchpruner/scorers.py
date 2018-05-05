@@ -114,7 +114,7 @@ def lossChangeScorer(params,loss,loss_calc_f=None):
         scores = params.data.clone()
         for idx in product(*map(range,scores.size())):
             old_val,params.data[idx] = params.data[idx],0
-            scores[idx] = loss_calc_f()[0].data[0]-loss.data[0]
+            scores[idx] = loss_calc_f()-loss.data[0]
             params.data[idx] = old_val
     return scores
 
