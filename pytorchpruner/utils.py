@@ -4,23 +4,6 @@ from torch.nn import Parameter
 import collections
 from itertools import tee
 
-class experimentContainer(object):
-    """
-    TODO
-    This is the base class to inherit from it holds
-    - torch.nn.Module with forward() function
-    - optimizer
-    - criterion
-    and has the following functions
-    loss
-    gradient
-    hessian
-    hv
-    runEpoch(is_test=False)
-    initDataLoader
-    """
-    def __init__(self):
-        pass
 
 def index_generator(size):
     #TODO change this with python iterators
