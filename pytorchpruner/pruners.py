@@ -1,11 +1,12 @@
 import torch
 from torch.nn.modules import Module
-from .modules import MaskedModule
+from .modules import MaskedModule,meanOutputReplacer
 from .utils import _find_fan_out_weights,my_select
 from torch.nn import Parameter
+from torch.autograd import Variable
 from torch import nn
 from .scorers import magnitudeScorer
-
+from .unitscorers import normScorer
 
 def get_pruning_mask(scores,f=0.1):
     """
@@ -21,6 +22,51 @@ def get_pruning_mask(scores,f=0.1):
         thres = srted[int(len(srted)*f)]
     mask = scores<thres
     return mask
+
+class BaseUnitPruner(object):
+    # f_reinit_optimizer needed to be able remove any scheduling existed before,
+    # to ensure that the masked gradients are not updated due momentum etc..
+    # IDEA maybe it is better to define BasePruner as an optimizer.
+    def __init__(self,model,f_reinit_optimizer=lambda : None,scorer=normScorer):
+        if not isinstance(model,MaskedModule):
+            if isinstance(model,Module):
+                self.masked_model=MaskedModule(model)
+            else:
+                raise ValueError("model needs to be a nn.Module")
+        else:
+            self.masked_model = model
+        self.scorer = scorer
+        self.f_reinit_optimizer = f_reinit_optimizer
+
+    def prune(self,f=0.1):
+        #f is prunning factor. TODO make it layer wise possibility. If supplied a list etc..
+        # We just prune weights not biases
+        # TODO if you want to remove some mask, i.e. f=0.5 after f=0.9. We need to implement that here
+        # Don't forget to reinitialize or update the state of the optimizer. Otherwise your weights might get updatete even though they have 0 grad.
+        # IDEA maybe use register buffer to hold masks
+
+        if isinstance(f,float):
+            for layer_name,layer in self.masked_model.module.named_modules():
+                if isinstance(layer, meanOutputReplacer):
+                    scores = self.scorer(layer)
+                    mask = get_pruning_mask(scores,f=f)
+                    if layer.module.weight.data.is_cuda:
+                        mask=mask.cuda()
+                    # I will remove the unit and set the bias to zero
+                    # this is to simulate bias progation
+                    # note that the gradient coming to this bias is same as if I added them to the next layer's biases
+                    # similarly
+                    means = layer.module.bias.data + layer.cy_mean
+                    means[~mask]=0
+                    self.masked_model.module.propagate_bias(layer_name,Variable(means),layer.cy_zeromean.size()[1:])
+                    layer.module.bias.data[mask] = 0
+                    self.masked_model._mask_dict[layer.module][1] = mask
+                    while mask.dim() < layer.module.weight.data.dim():
+                        mask=mask.unsqueeze(-1)
+                    mask = mask.expand_as(layer.module.weight.data)
+                    layer.module.weight.data[mask] = 0
+                    self.masked_model._mask_dict[layer.module][0] = mask
+            self.f_reinit_optimizer()
 
 class BasePruner(object):
     # f_reinit_optimizer needed to be able remove any scheduling existed before,
@@ -44,14 +90,16 @@ class BasePruner(object):
         # Don't forget to reinitialize or update the state of the optimizer. Otherwise your weights might get updatete even though they have 0 grad.
         # IDEA maybe use register buffer to hold masks
         if isinstance(f,float):
-            for layer,mask in self.masked_model._mask_dict.items():
+            for layer in self.masked_model._mask_dict.keys():
                 scores = self.scorer(layer.weight)
                 mask = get_pruning_mask(scores,f)
                 layer.weight.data[mask] = 0
-                self.masked_model._mask_dict[layer] = mask
+                self.masked_model._mask_dict[layer][0] = mask
         self.f_reinit_optimizer()
 
-    def remove_empty_filters(self, layer_name, nz_frac=0.0, nz_frac_next=0.0, debug=True, out_dim=0, inp_dim=1):
+
+#TODO implementing mean replacement such that all zeros doesn't introduce errors at all!
+    def remove_empty_filters(self, layer_name, nz_frac=0.0, nz_frac_next=0.0, debug=False, out_dim=0, inp_dim=1):
         r"""This function removes dead filters in a conv2d or Linear layer.
         There are two possibilities
         1. All the weights in a filter or row is 0, such that the output always 0
@@ -73,12 +121,12 @@ class BasePruner(object):
             n_filter = layer.weight.data.size(out_dim)
             non_empty_filters = []
             for i in range(n_filter):
-                curr_mask = self.masked_model._mask_dict[layer].select(out_dim,i)
+                curr_mask = self.masked_model._mask_dict[layer][0].select(out_dim,i)
                 next_layer_name,unit_index = _find_fan_out_weights(self.masked_model.module.defs_conv,
                                                             self.masked_model.module.defs_fc,
                                                             layer_name,i)
                 next_layer = getattr(self.masked_model.module,next_layer_name)
-                next_mask = my_select(self.masked_model._mask_dict[next_layer],inp_dim,unit_index)
+                next_mask = my_select(self.masked_model._mask_dict[next_layer][0],inp_dim,unit_index)
                 n_non_zeros = (curr_mask==0).sum()
                 n_total = curr_mask.numel()
                 frac_non_zeros = n_non_zeros / float(n_total)
@@ -105,7 +153,7 @@ class BasePruner(object):
         # We need to update the layer(weight,bias,mask) and next layer(weigt,mask)
         new_p = Parameter(my_select(layer.weight.data,out_dim,surviving_indices)) #This gets the non-empty filters
         new_p_bias = Parameter(my_select(layer.bias.data,out_dim,surviving_indices)) #This gets the non-empty filters-biases
-        new_mask = my_select(self.masked_model._mask_dict[layer],out_dim,surviving_indices) #if you find them select
+        new_mask = my_select(self.masked_model._mask_dict[layer][0],out_dim,surviving_indices) #if you find them select
         if (isinstance(layer,nn.Conv2d)
          and isinstance(next_layer,nn.Linear)):
             # We need to propogate each removed filters output so one filter removed would remove output_size many columns on the next_layer.
@@ -117,9 +165,9 @@ class BasePruner(object):
             new_p2 = Parameter(my_select(next_layer.weight.data,inp_dim,flattened_surviving_columns)) ##This gets the non-empty filters-input channels
             layer.out_channels = new_n_filter
             next_layer.in_features = len(flattened_surviving_columns)
-            new_mask2 = my_select(self.masked_model._mask_dict[next_layer],inp_dim,flattened_surviving_columns)
+            new_mask2 = my_select(self.masked_model._mask_dict[next_layer][0],inp_dim,flattened_surviving_columns)
         else:
-            new_mask2 = my_select(self.masked_model._mask_dict[next_layer],inp_dim,surviving_indices)
+            new_mask2 = my_select(self.masked_model._mask_dict[next_layer][0],inp_dim,surviving_indices)
             new_p2 = Parameter(my_select(next_layer.weight.data,inp_dim,surviving_indices)) ##This gets the non-empty filters-input channels
             if isinstance(layer,nn.Conv2d):
                 layer.out_channels = new_n_filter
@@ -138,5 +186,5 @@ class BasePruner(object):
         layer.bias = new_p_bias
         next_layer.weight = new_p2
         ## Update masks
-        self.masked_model._mask_dict[layer] = new_mask
-        self.masked_model._mask_dict[next_layer] = new_mask2
+        self.masked_model._mask_dict[layer][0] = new_mask
+        self.masked_model._mask_dict[next_layer][0] = new_mask2
