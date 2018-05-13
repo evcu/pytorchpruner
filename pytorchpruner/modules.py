@@ -48,7 +48,13 @@ class meanOutputReplacer(torch.nn.Module):
             self.cy_mean = out_mean.data
             # import pdb;pdb.set_trace()
             if self.is_mean_replace:
-                out[:,self.unit_id] = out_mean[self.unit_id].expand(out.size(0),*out.size()[2:])
+                if isinstance(self.unit_id,torch.ByteTensor):
+                    ## CAN DO THIS MORE EFFICIENTLY USING TENSOR OPS
+                    for i in range(len(self.unit_id)):
+                        if self.unit_id[i]==1:
+                            out[:,i] = out_mean[i].expand(out.size(0),*out.size()[2:])
+                else:
+                    out[:,self.unit_id] = out_mean[self.unit_id].expand(out.size(0),*out.size()[2:])
             else:
                 out_mean_expanded = out_mean.data.expand(out.size(0),
                                                         *out.size()[2:],
