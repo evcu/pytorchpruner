@@ -8,11 +8,30 @@ from torch import nn
 import torch
 #loss is not needer, but adding it here to have a generic set of parameters
 def normScorer(layer,p=1,**kwargs):
+    if isinstance(layer,meanOutputReplacer):
+        layer = layer.module
     if isinstance(layer,(nn.Conv2d,nn.Linear)):
         normed_param = layer.weight.data.norm(p=p,dim=1)
         while normed_param.dim()>1:
             normed_param = normed_param.norm(p=p,dim=1)
         return normed_param
+    else:
+        raise ValueError("Invalid type, received: %s. should be a nn.Conv2d or nn.Linear" % type(layer))
+
+def normScorerL1(layer,**kwargs):
+    return normScorer(layer,p=1,**kwargs)
+
+def normScorerL2(layer,**kwargs):
+    return normScorer(layer,p=2,**kwargs)
+
+def randomScorer(layer,p=1,**kwargs):
+    old_state = torch.get_rng_state()
+    if isinstance(layer,meanOutputReplacer):
+        layer = layer.module
+    if isinstance(layer,(nn.Conv2d,nn.Linear)):
+        res = torch.rand(layer.weight.data.size(0))
+        torch.set_rng_state(old_state)
+        return res
     else:
         raise ValueError("Invalid type, received: %s. should be a nn.Conv2d or nn.Linear" % type(layer))
 
